@@ -8,8 +8,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/tealeg/xlsx"
 	"github.com/kjk/lzmadec"
+	"github.com/tealeg/xlsx"
 )
 
 const (
@@ -23,116 +23,160 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO: remove, for test only
-	if err := os.RemoveAll(TMPDIR); err != nil {
+	if err := ensureMkdir(TMPDIR); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	if err := os.Mkdir(TMPDIR, 0777); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
-	// TODO: remove, for test only
-	if err := os.RemoveAll(DATADIR); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
-	if err := os.Mkdir(DATADIR, 0777); err != nil {
+	if err := ensureMkdir(DATADIR); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
 	filename := os.Args[1]
-	parseXlsx(filename)
+
+	items := parseXlsx(filename)
+
+	// Run a pipeline parse --> download --> extract
+	// to avoid blocking the download during the extraction
+	for item := range items {
+		if itemExist(item) {
+			fmt.Printf("%s exist, skipping\n", item.name)
+			continue
+		}
+
+		filepath, err := download(item)
+
+		if err != nil {
+			fmt.Printf("Error while downloading %s: %s\n", item.name, err)
+			continue
+		}
+
+		go extract(item, filepath)
+	}
 }
 
-func parseXlsx(filename string) {
+func ensureMkdir(path string) error {
+	_, err := os.Stat(path)
+
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+
+		if err := os.Mkdir(path, 0777); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type Item struct {
+	name string
+	url  string
+}
+
+func parseXlsx(filename string) <-chan Item {
 	xlFile, err := xlsx.OpenFile(filename)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	numColumn := 0
-	urlColumn := -1
-	counter := 1
+	out := make(chan Item)
 
-	for _, sheet := range xlFile.Sheets {
-		for rowIndex, row := range sheet.Rows {
+	go func() {
+		defer close(out)
 
-			// Extract index of column with url
-			if rowIndex == 0 {
-				for columnIndex, cell := range row.Cells {
-					if strings.Contains(strings.ToLower(cell.String()), "lien") {
-						urlColumn = columnIndex
+		numColumn := 0
+		urlColumn := -1
+		counter := 1
+
+		for _, sheet := range xlFile.Sheets {
+			for rowIndex, row := range sheet.Rows {
+
+				// Extract index of column with url
+				if rowIndex == 0 {
+					for columnIndex, cell := range row.Cells {
+						if strings.Contains(strings.ToLower(cell.String()), "lien") {
+							urlColumn = columnIndex
+						}
 					}
+					// skip header
+					continue
 				}
-				// skip header
-				continue
+
+				if urlColumn < 0 {
+					fmt.Println("Error: Column with url not found for sheet", sheet.Name)
+					os.Exit(-1)
+				}
+
+				out <- Item{
+					name: fmt.Sprintf("%d_%s", counter, row.Cells[numColumn].String()),
+					url:  row.Cells[urlColumn].String(),
+				}
+
+				counter++
 			}
 
-			if urlColumn < 0 {
-				fmt.Println("Error: Column with url not found for sheet", sheet.Name)
-				os.Exit(-1)
-			}
-
-			num := fmt.Sprintf("%d_%s", counter, row.Cells[numColumn].String())
-			url := row.Cells[urlColumn].String()
-			counter++
-
-			download(num, url)
+			urlColumn = -1
 		}
+	}()
 
-		urlColumn = -1
-	}
+	return out
 }
 
-func download(name string, url string) {
-	fmt.Println("Downloading", name, "...")
+func itemExist(item Item) bool {
+	dir := path.Join(DATADIR, item.name)
 
-	filepath := path.Join(TMPDIR, name+".7z")
+	_, err := os.Stat(dir)
 
-	response, err := http.Get(url)
+	return err == nil
+}
+
+func download(item Item) (string, error) {
+	fmt.Println("Downloading", item.name, "...")
+
+	filepath := path.Join(TMPDIR, item.name+".7z")
+
+	response, err := http.Get(item.url)
 	if err != nil {
-		fmt.Println("Error while downloading", url, "-", err)
-		return
+		return "", err
 	}
 	defer response.Body.Close()
 
 	output, err := os.Create(filepath)
 	if err != nil {
-		fmt.Println("Error while creating", filepath, "-", err)
-		return
+		return "", err
 	}
 	defer output.Close()
 
 	n, err := io.Copy(output, response.Body)
 	if err != nil {
-		fmt.Println("Error while writing", url, "-", err)
-		return
+		return "", err
 	}
 
 	fmt.Println(n, "bytes downloaded.")
 
-	extract(name, filepath)
+	return filepath, nil
 }
 
-func extract(name string, filepath string) {
+func extract(item Item, filepath string) {
 	archive, err := lzmadec.NewArchive(filepath)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	dir := path.Join(DATADIR, name)
+	dir := path.Join(DATADIR, item.name)
 
 	if err := os.Mkdir(dir, 0777); err != nil {
 		fmt.Println(err)
 		return
 	}
+
+	extracted := 0
 
 	for _, e := range archive.Entries {
 		if path.Ext(e.Path) == "" {
@@ -148,7 +192,9 @@ func extract(name string, filepath string) {
 			fmt.Println("Failed to extract", e.Path, err)
 			return
 		}
+
+		extracted++
 	}
 
-	fmt.Printf("Extracted %d files\n", len(archive.Entries))
+	fmt.Printf("Extracted %d files\n", extracted)
 }
