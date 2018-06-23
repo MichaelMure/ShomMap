@@ -10,12 +10,9 @@ import (
 
 	"github.com/kjk/lzmadec"
 	"github.com/tealeg/xlsx"
+	"cartemaritime/common"
 )
 
-const (
-	TMPDIR  = "./tmp"
-	DATADIR = "./result"
-)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -23,12 +20,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := ensureMkdir(TMPDIR); err != nil {
+	if err := ensureMkdir(common.TMPDIR); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	if err := ensureMkdir(DATADIR); err != nil {
+	if err := ensureMkdir(common.DATADIR); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
@@ -128,7 +125,7 @@ func parseXlsx(filename string) <-chan Item {
 }
 
 func itemExist(item Item) bool {
-	dir := path.Join(DATADIR, item.name)
+	dir := path.Join(common.DATADIR, item.name)
 
 	_, err := os.Stat(dir)
 
@@ -138,7 +135,7 @@ func itemExist(item Item) bool {
 func download(item Item) (string, error) {
 	fmt.Println("Downloading", item.name, "...")
 
-	filepath := path.Join(TMPDIR, item.name+".7z")
+	filepath := path.Join(common.TMPDIR, item.name+".7z")
 
 	response, err := http.Get(item.url)
 	if err != nil {
@@ -169,7 +166,7 @@ func extract(item Item, filepath string) {
 		return
 	}
 
-	dir := path.Join(DATADIR, item.name)
+	dir := path.Join(common.DATADIR, item.name)
 
 	if err := os.Mkdir(dir, 0777); err != nil {
 		fmt.Println(err)
