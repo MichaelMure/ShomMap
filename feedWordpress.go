@@ -1,20 +1,19 @@
 package main
 
 import (
-	"io/ioutil"
-	"fmt"
-	"os"
-	"path/filepath"
 	"cartemaritime/common"
+	"encoding/xml"
+	"fmt"
+	"io/ioutil"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
-	"encoding/xml"
 )
 
 func main() {
 	rawDataChan := readRawData(common.DATADIR)
-
 
 	for data := range rawDataChan {
 		fmt.Println(data)
@@ -31,9 +30,9 @@ func main() {
 }
 
 type rawData struct {
-	name string
+	name        string
 	hdImageName string
-	xmlName string
+	xmlName     string
 }
 
 // Read the given directory and return a channel of rawData for each subdir
@@ -66,10 +65,10 @@ func readRawData(dirname string) <-chan rawData {
 
 		for _, entry := range dirEntries {
 
-			if ! entry.IsDir() {
+			if !entry.IsDir() {
 				continue
 			}
-			
+
 			dirPath := path.Join(dirname, entry.Name())
 
 			hdImageFile, err := findFile(dirPath, ".jp2")
@@ -85,9 +84,9 @@ func readRawData(dirname string) <-chan rawData {
 			}
 
 			data := rawData{
-				name: entry.Name(),
+				name:        entry.Name(),
 				hdImageName: path.Join(dirPath, hdImageFile.Name()),
-				xmlName: path.Join(dirPath, xmlFile.Name()),
+				xmlName:     path.Join(dirPath, xmlFile.Name()),
 			}
 
 			out <- data
@@ -117,12 +116,11 @@ func findFile(dirname string, ext string) (os.FileInfo, error) {
 	return nil, fmt.Errorf("file not found")
 }
 
-
 type Metadata struct {
-	DateStamp string `xml:"dateStamp>DateTime"`
+	DateStamp       string `xml:"dateStamp>DateTime"`
 	ReferenceSystem string `xml:"referenceSystemInfo>MD_ReferenceSystem>referenceSystemIdentifier>RS_Identifier>code>CharacterString"`
-	Title string `xml:"identificationInfo>MD_DataIdentification>citation>CI_Citation>title>CharacterString"`
-	Date string `xml:"identificationInfo>MD_DataIdentification>citation>CI_Citation>date>CI_Date>date>Date"`
+	Title           string `xml:"identificationInfo>MD_DataIdentification>citation>CI_Citation>title>CharacterString"`
+	Date            string `xml:"identificationInfo>MD_DataIdentification>citation>CI_Citation>date>CI_Date>date>Date"`
 
 	CitedParties []CitedParty `xml:"identificationInfo>MD_DataIdentification>citation>CI_Citation>citedResponsibleParty"`
 
@@ -137,7 +135,7 @@ type CitedParty struct {
 
 	// One of the two next
 	Person string `xml:"CI_ResponsibleParty>individualName>CharacterString"`
-	Org string `xml:"CI_ResponsibleParty>organisationName>CharacterString"`
+	Org    string `xml:"CI_ResponsibleParty>organisationName>CharacterString"`
 
 	Role Role `xml:"CI_ResponsibleParty>role>CI_RoleCode"`
 }
@@ -147,8 +145,8 @@ type Role struct {
 }
 
 type Extent struct {
-	WestBound string `xml:"westBoundLongitude>Decimal"`
-	EastBound string `xml:"eastBoundLongitude>Decimal"`
+	WestBound  string `xml:"westBoundLongitude>Decimal"`
+	EastBound  string `xml:"eastBoundLongitude>Decimal"`
 	SouthBound string `xml:"southBoundLatitude>Decimal"`
 	NorthBound string `xml:"northBoundLatitude>Decimal"`
 }
@@ -178,13 +176,13 @@ func cleanCitedParty(metadata Metadata) Metadata {
 		if len(party.Person) > 0 {
 			cleaned = append(cleaned, CitedParty{
 				Person: party.Person,
-				Role: party.Role,
+				Role:   party.Role,
 			})
 		}
 
 		if len(party.Org) > 0 {
 			cleaned = append(cleaned, CitedParty{
-				Org: party.Org,
+				Org:  party.Org,
 				Role: party.Role,
 			})
 		}
